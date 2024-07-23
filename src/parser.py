@@ -1,24 +1,7 @@
 import pandas as pd
-import requests
 import logging
-from requests.adapters import HTTPAdapter
-from urllib3.util import Retry
 from concurrent.futures import ThreadPoolExecutor, as_completed
-
-
-def setup_session(retries=3, backoff_factor=0.3, status_forcelist=(500, 502, 504)):
-    session = requests.Session()
-    retry = Retry(
-        total=retries,
-        read=retries,
-        connect=retries,
-        backoff_factor=backoff_factor,
-        status_forcelist=status_forcelist,
-    )
-    adapter = HTTPAdapter(max_retries=retry)
-    session.mount('http://', adapter)
-    session.mount('https://', adapter)
-    return session
+from src.utils import setup_session
 
 
 def fetch_vacancies(session, city_id, vacancy, url, timestamp_now):
@@ -49,18 +32,13 @@ def fetch_vacancies(session, city_id, vacancy, url, timestamp_now):
                 break
 
         except Exception as e:
-            logging.error(f"An error occurred: {e}")
+            logging.error(f"An error occurred: {e}",
+                          exc_info=True)
             break
     return temp_data
 
 
-def collect_vacancies_data(cities, vacancies):
-    url = 'https://api.hh.ru/vacancies'
-    logging.info(f'Starting vacancy requests using {url=}')
-    timestamp_now = pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')
-
-    session = setup_session()
-
+def process_vacancy_requests(session, cities, vacancies, url, timestamp_now):
     all_vacancies = []
     with ThreadPoolExecutor(max_workers=10) as executor:
         future_to_vacancy = {
@@ -75,7 +53,19 @@ def collect_vacancies_data(cities, vacancies):
                 all_vacancies.extend(temp_data)
                 logging.info(f"Processed city {city_id} for vacancy {vacancy}")
             except Exception as e:
-                logging.error(f"An error occurred while processing city {city_id} for vacancy {vacancy}: {e}")
+                logging.error(f"An error occurred while processing city {city_id} for vacancy {vacancy}: {e}",
+                              exc_info=True)
+
+    return all_vacancies
+
+
+def collect_vacancies_data(cities, vacancies):
+    url = 'https://api.hh.ru/vacancies'
+    logging.info(f'Starting vacancy requests using {url=}')
+    timestamp_now = pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')
+
+    session = setup_session()
+    all_vacancies = process_vacancy_requests(session, cities, vacancies, url, timestamp_now)
 
     if all_vacancies:
         result = pd.concat(all_vacancies, ignore_index=True)
